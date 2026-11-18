@@ -1,118 +1,74 @@
-import type { Face, Paper } from "../../../shared/types";
-const faces: Face[] = [
-  {
-    id: "a",
-    points: [
-      [-1, 0, -1],
-      [1, 0, -1],
-      [1, 0, 0],
-    ],
-  },
-  {
-    id: "b",
-    parent: "a",
-    crease: "c1",
-    hinge: [
-      [-1, 0, -1],
-      [1, 0, 0],
-    ],
-    points: [
-      [-1, 0, -1],
-      [1, 0, 0],
-      [1, 0, 1],
-    ],
-  },
-  {
-    id: "c",
-    parent: "b",
-    crease: "c2",
-    hinge: [
-      [-1, 0, -1],
-      [1, 0, 1],
-    ],
-    points: [
-      [-1, 0, -1],
-      [1, 0, 1],
-      [0, 0, 1],
-    ],
-  },
-  {
-    id: "d",
-    parent: "c",
-    crease: "c3",
-    hinge: [
-      [-1, 0, -1],
-      [0, 0, 1],
-    ],
-    points: [
-      [-1, 0, -1],
-      [0, 0, 1],
-      [-1, 0, 1],
-    ],
-  },
+import type { CreaseLine, P2, Paper } from "../../../shared/types";
+import { buildPaper, type PaperSpec } from "../../design/lib/build";
+
+function line(
+  id: string,
+  a: P2,
+  b: P2,
+  name: string,
+  description: string,
+  target: number,
+): CreaseLine {
+  return { id, a, b, name, description, target };
+}
+
+/** 两款预设共用同一组扇形折痕图案（从纸角出发的三道折痕） */
+function fan(
+  c1: [string, string, number],
+  c2: [string, string, number],
+  c3: [string, string, number],
+): CreaseLine[] {
+  return [
+    line("c1", [-1, -1], [1, 0], ...c1),
+    line("c2", [-1, -1], [1, 1], ...c2),
+    line("c3", [-1, -1], [0, 1], ...c3),
+  ];
+}
+
+const specs: [PaperSpec, CreaseLine[]][] = [
+  [
+    {
+      id: "shelter",
+      name: "纸之庭",
+      subtitle: "立体空间 · 3 道折痕",
+      size: 200,
+      rootAt: [0.5, -0.6],
+    },
+    fan(
+      ["侧翼斜折", "沿第一条斜折线抬起纸面，后续纸面随动。", 75],
+      ["对角深折", "沿正方形对角线继续折叠，形成开放的空间。", 65],
+      ["侧翼回折", "在已经转动的纸面上收拢最后一翼。", -80],
+    ),
+  ],
+  [
+    {
+      id: "ribbon",
+      name: "山谷回廊",
+      subtitle: "连续折叠 · 3 道折痕",
+      size: 180,
+      rootAt: [0.5, -0.6],
+    },
+    fan(
+      ["第一道山脊", "右侧相邻纸面围绕中轴旋转。", 110],
+      ["入口谷折", "左前翼向下展开。", -55],
+      ["回廊转角", "末端纸面沿局部折轴回转。", 100],
+    ),
+  ],
+  [
+    {
+      id: "blank",
+      name: "空白纸",
+      subtitle: "自由绘制 · 0 道折痕",
+      size: 200,
+    },
+    [],
+  ],
 ];
-export const papers: Paper[] = [
-  {
-    id: "shelter",
-    name: "纸之庭",
-    subtitle: "立体空间 · 3 道折痕",
-    size: 200,
-    faces,
-    creases: [
-      {
-        id: "c1",
-        face: "b",
-        name: "侧翼斜折",
-        description: "沿第一条斜折线抬起纸面，后续纸面随动。",
-        target: 75,
-      },
-      {
-        id: "c2",
-        face: "c",
-        name: "对角深折",
-        description: "沿正方形对角线继续折叠，形成开放的空间。",
-        target: 65,
-      },
-      {
-        id: "c3",
-        face: "d",
-        name: "侧翼回折",
-        description: "在已经转动的纸面上收拢最后一翼。",
-        target: -80,
-      },
-    ],
-  },
-  {
-    id: "ribbon",
-    name: "山谷回廊",
-    subtitle: "连续折叠 · 3 道折痕",
-    size: 180,
-    faces,
-    creases: [
-      {
-        id: "c1",
-        face: "b",
-        name: "第一道山脊",
-        description: "右侧相邻纸面围绕中轴旋转。",
-        target: 110,
-      },
-      {
-        id: "c2",
-        face: "c",
-        name: "入口谷折",
-        description: "左前翼向下展开。",
-        target: -55,
-      },
-      {
-        id: "c3",
-        face: "d",
-        name: "回廊转角",
-        description: "末端纸面沿局部折轴回转。",
-        target: 100,
-      },
-    ],
-  },
-];
+
+export const papers: Paper[] = specs.map(([spec, pattern]) =>
+  buildPaper(spec, pattern),
+);
+
 export const swatches = [
   { name: "柿子", front: "#e88459", back: "#f8dec2" },
   { name: "苔绿", front: "#718c79", back: "#dce6cf" },

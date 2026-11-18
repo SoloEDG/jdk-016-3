@@ -1,17 +1,15 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import type { Document, PoseFace } from "../../../shared/types";
-import { project, polygon, cameraPoint } from "../lib/projection";
+import type { ClosureInfo, HingeSeg } from "../../fold/lib/closure";
+import { project, cameraPoint, facePath } from "../lib/projection";
 import { orbit, zoom, setView } from "../model/camera";
 import { downloadView } from "../lib/export";
 const props = defineProps<{
   doc: Document;
   pose: PoseFace[];
-  hinges: {
-    id: string;
-    a: [number, number, number];
-    b: [number, number, number];
-  }[];
+  hinges: (HingeSeg & { label: number })[];
+  analysis: ClosureInfo;
 }>();
 defineEmits<{ select: [id: string] }>();
 const svg = ref<SVGSVGElement>();
@@ -98,31 +96,45 @@ function move(e: PointerEvent) {
         filter="url(#shadow)"
       />
       <g v-for="f in faces" :key="f.id" :data-face="f.id">
-        <polygon
-          :points="polygon(f.points, doc.view)"
+        <path
+          :d="facePath(f.points, f.holes, doc.view)"
+          fill-rule="evenodd"
           :fill="f.back ? doc.back : doc.front"
           stroke="#785945"
           stroke-opacity=".35"
           stroke-width="1.2"
           stroke-linejoin="round"
         />
-        <polygon
-          :points="polygon(f.points, doc.view)"
+        <path
+          :d="facePath(f.points, f.holes, doc.view)"
+          fill-rule="evenodd"
           fill="#314638"
           :opacity="Math.max(0, 0.1 + f.normal[1] * 0.08)"
         />
-        <polygon
+        <path
           v-if="doc.texture !== 'plain'"
-          :points="polygon(f.points, doc.view)"
+          :d="facePath(f.points, f.holes, doc.view)"
+          fill-rule="evenodd"
           :fill="'url(#' + doc.texture + ')'"
+        />
+        <path
+          v-if="analysis.conflictFaces.has(f.id)"
+          :d="facePath(f.points, f.holes, doc.view)"
+          fill-rule="evenodd"
+          fill="#b4543f"
+          fill-opacity=".16"
+          stroke="#b4543f"
+          stroke-opacity=".55"
+          stroke-width="1.4"
+          stroke-linejoin="round"
         />
       </g>
       <g v-if="doc.view.wire">
         <g
-          v-for="(h, i) in hinges"
+          v-for="h in hinges"
           :key="h.id"
           class="hinge"
-          @click.stop="$emit('select', h.id)"
+          @click.stop="$emit('select', h.crease)"
         >
           <line
             :x1="project(h.a, doc.view).x"
@@ -133,29 +145,56 @@ function move(e: PointerEvent) {
             stroke-width="18"
           />
           <line
+            v-if="h.tree"
             :x1="project(h.a, doc.view).x"
             :y1="project(h.a, doc.view).y"
             :x2="project(h.b, doc.view).x"
             :y2="project(h.b, doc.view).y"
-            :stroke="h.id === doc.selected ? '#fff8d9' : '#746f57'"
-            :stroke-width="h.id === doc.selected ? 2.5 : 1.2"
+            :stroke="h.crease === doc.selected ? '#fff8d9' : '#746f57'"
+            :stroke-width="h.crease === doc.selected ? 2.5 : 1.2"
             stroke-dasharray="5 4"
           />
-          <circle
-            :cx="(project(h.a, doc.view).x + project(h.b, doc.view).x) / 2"
-            :cy="(project(h.a, doc.view).y + project(h.b, doc.view).y) / 2"
-            r="11"
-            :fill="h.id === doc.selected ? '#384d3f' : '#f7f6ee'"
-          />
-          <text
-            :x="(project(h.a, doc.view).x + project(h.b, doc.view).x) / 2"
-            :y="(project(h.a, doc.view).y + project(h.b, doc.view).y) / 2 + 3.5"
-            text-anchor="middle"
-            font-size="10"
-            :fill="h.id === doc.selected ? 'white' : '#555'"
-          >
-            {{ i + 1 }}
-          </text>
+          <template v-else>
+            <line
+              :x1="project(h.a, doc.view).x"
+              :y1="project(h.a, doc.view).y"
+              :x2="project(h.b, doc.view).x"
+              :y2="project(h.b, doc.view).y"
+              :stroke="
+                analysis.conflictHinges.has(h.id) ? '#b4543f' : '#c58a3d'
+              "
+              :stroke-width="analysis.conflictHinges.has(h.id) ? 2 : 1.2"
+              stroke-dasharray="2 4"
+            />
+            <line
+              v-if="analysis.conflictHinges.has(h.id) && h.a2 && h.b2"
+              :x1="project(h.a2, doc.view).x"
+              :y1="project(h.a2, doc.view).y"
+              :x2="project(h.b2, doc.view).x"
+              :y2="project(h.b2, doc.view).y"
+              stroke="#b4543f"
+              stroke-width="2"
+              stroke-dasharray="2 4"
+              stroke-opacity=".65"
+            />
+          </template>
+          <g v-if="h.label">
+            <circle
+              :cx="(project(h.a, doc.view).x + project(h.b, doc.view).x) / 2"
+              :cy="(project(h.a, doc.view).y + project(h.b, doc.view).y) / 2"
+              r="11"
+              :fill="h.crease === doc.selected ? '#384d3f' : '#f7f6ee'"
+            />
+            <text
+              :x="(project(h.a, doc.view).x + project(h.b, doc.view).x) / 2"
+              :y="(project(h.a, doc.view).y + project(h.b, doc.view).y) / 2 + 3.5"
+              text-anchor="middle"
+              font-size="10"
+              :fill="h.crease === doc.selected ? 'white' : '#555'"
+            >
+              {{ h.label }}
+            </text>
+          </g>
         </g>
       </g>
       <g transform="translate(58,475)" stroke-width="1.5">
@@ -168,7 +207,7 @@ function move(e: PointerEvent) {
       </g>
     </svg>
     <div class="scene-caption">
-      <span>拖动旋转视角 · 滚轮缩放</span
+      <span>拖动旋转视角 · 滚轮缩放 · 点线为闭环约束折痕</span
       ><b>{{ Math.round(doc.view.zoom * 100) }}%</b>
     </div>
     <div class="scene-tools">

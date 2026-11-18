@@ -3,7 +3,7 @@ import type { Document } from "../../../shared/types";
 import { papers, swatches } from "../lib/presets";
 import { setMaterial } from "../model/paper";
 defineProps<{ doc: Document }>();
-defineEmits<{ paper: [id: string] }>();
+defineEmits<{ paper: [id: string]; design: [] }>();
 </script>
 <template>
   <section class="panel">
@@ -18,11 +18,16 @@ defineEmits<{ paper: [id: string] }>();
       :class="{ active: doc.paper.id === p.id }"
       @click="$emit('paper', p.id)"
     >
-      <span class="mini-paper" :class="{ green: i === 1 }">◇</span
+      <span class="mini-paper" :class="{ green: i === 1, blank: i === 2 }"
+        >◇</span
       ><span
         ><b>{{ p.name }}</b
         ><small>{{ p.subtitle }}</small></span
       ><span class="radio-dot"></span>
+    </button>
+    <button class="design-entry" @click="$emit('design')">
+      <span>✎</span> 绘制自定义折痕
+      <small>在展开图上画线，立即得到可折叠的新纸张</small>
     </button>
     <div class="line-label"><label>纸张颜色</label><span>双面配色</span></div>
     <div class="swatches">

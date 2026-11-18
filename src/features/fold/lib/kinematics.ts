@@ -1,6 +1,17 @@
 import type { Paper, PoseFace, Vec3 } from "../../../shared/types";
 import { rotate, sub, cross, unit } from "../../../shared/vector";
 type Transform = (p: Vec3) => Vec3;
+/** 法向：跳过共线顶点（T 型交界会在纸面边界上留下 180° 顶点） */
+function faceNormal(points: Vec3[]): Vec3 {
+  for (let i = 0; i + 2 < points.length; i++) {
+    const n = cross(
+      sub(points[i + 1]!, points[i]!),
+      sub(points[i + 2]!, points[i]!),
+    );
+    if (Math.hypot(...n) > 1e-9) return unit(n);
+  }
+  return [0, 1, 0];
+}
 export function solvePose(
   paper: Paper,
   angles: Record<string, number>,
@@ -25,24 +36,9 @@ export function solvePose(
     result.push({
       id: f.id,
       points,
-      normal: unit(
-        cross(sub(points[1]!, points[0]!), sub(points[2]!, points[0]!)),
-      ),
+      holes: f.holes.map((h) => h.map(transform)),
+      normal: faceNormal(points),
     });
   }
   return result;
-}
-export function hingePositions(paper: Paper, pose: PoseFace[]) {
-  return paper.creases.map((c) => {
-    const base = paper.faces.find((f) => f.id === c.face)!;
-    const face = pose.find((f) => f.id === c.face)!;
-    const indices = base.hinge!.map((h) =>
-      base.points.findIndex((p) => p.every((n, i) => n === h[i])),
-    );
-    return {
-      id: c.id,
-      a: face.points[indices[0]!]!,
-      b: face.points[indices[1]!]!,
-    };
-  });
 }

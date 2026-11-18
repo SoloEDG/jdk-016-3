@@ -8,6 +8,7 @@ import {
   Leaf,
 } from "lucide-vue-next";
 import { createDocument } from "../shared/document";
+import type { P2 } from "../shared/types";
 import { PaperPanel, papers, replacePaper } from "../features/paper";
 import {
   CreasePanel,
@@ -18,7 +19,8 @@ import {
 import {
   FoldPanel,
   solvePose,
-  hingePositions,
+  hingeSegments,
+  closureAnalysis,
   changeAngle,
   flatten,
   applyTarget,
@@ -31,9 +33,31 @@ import {
   usePlayer,
 } from "../features/sequence";
 import { Viewport, ObservePanel, setView } from "../features/observe";
+import {
+  DesignCanvas,
+  DesignPanel,
+  enterDesign,
+  exitDesign,
+  finishDesign,
+  drawSegment,
+  removeCreaseLine,
+  undoDraw,
+} from "../features/design";
+
 const doc = reactive(createDocument(papers[0]!, makeSteps(papers[0]!)));
-const pose = computed(() => solvePose(doc.paper, doc.angles)),
-  hinges = computed(() => hingePositions(doc.paper, pose.value));
+const pose = computed(() => solvePose(doc.paper, doc.angles));
+const analysis = computed(() => closureAnalysis(doc.paper, pose.value));
+const hinges = computed(() => {
+  const seen = new Set<string>();
+  return hingeSegments(doc.paper, pose.value).map((h) => {
+    let label = 0;
+    if (!seen.has(h.crease)) {
+      seen.add(h.crease);
+      label = doc.paper.creases.findIndex((c) => c.id === h.crease) + 1;
+    }
+    return { ...h, label };
+  });
+});
 const { toggle } = usePlayer(doc);
 const help = ref(false),
   toast = ref("");
@@ -44,12 +68,14 @@ function notify(s: string) {
 function choosePaper(id: string) {
   const p = papers.find((p) => p.id === id);
   if (p) {
+    exitDesign(doc, false);
     replacePaper(doc, p);
     doc.steps = makeSteps(p);
     setView(doc, "iso");
   }
 }
 function reset() {
+  exitDesign(doc, false);
   flatten(doc);
   doc.steps = makeSteps(doc.paper);
   setView(doc, "iso");
@@ -59,6 +85,39 @@ function capture() {
   captureStep(doc);
   notify("当前形态已保存到步骤 " + (doc.step + 1));
 }
+function startDesign() {
+  enterDesign(doc);
+  notify("在展开图上点击两点绘制折痕");
+}
+function commitDesign() {
+  const n = finishDesign(doc);
+  notify(
+    n
+      ? `已提交 ${n} 道新折痕，步骤序列已更新`
+      : "没有新的折痕，已返回折叠模式",
+  );
+}
+function abandonDesign() {
+  exitDesign(doc, true);
+  notify("已放弃本次绘制，纸张恢复原样");
+}
+function draw(a: P2, b: P2) {
+  notify(drawSegment(doc, a, b).message);
+}
+function removeLine(id: string) {
+  notify(removeCreaseLine(doc, id).message);
+}
+function undoLine() {
+  notify(undoDraw(doc).message);
+}
+const paperAlias = computed(
+  () =>
+    ({
+      shelter: "PAPER GARDEN",
+      ribbon: "VALLEY WALK",
+      blank: "BLANK SHEET",
+    })[doc.paper.id] ?? "CREASE PATTERN",
+);
 </script>
 <template>
   <div class="workspace">
@@ -94,9 +153,23 @@ function capture() {
       </div>
       <div class="studio">
         <aside class="left-sidebar">
-          <PaperPanel :doc="doc" @paper="choosePaper" /><CreasePanel
+          <PaperPanel
             :doc="doc"
+            @paper="choosePaper"
+            @design="startDesign"
+          /><CreasePanel
+            v-if="doc.mode === 'fold'"
+            :doc="doc"
+            :analysis="analysis"
             @select="selectCrease(doc, $event)"
+          /><DesignPanel
+            v-else
+            :doc="doc"
+            :analysis="analysis"
+            @finish="commitDesign"
+            @cancel="abandonDesign"
+            @undo="undoLine"
+            @remove="removeLine"
           />
           <div class="sidebar-footer">
             <Layers :size="13" /> 单张纸 ·
@@ -107,23 +180,40 @@ function capture() {
           <div class="canvas-label">
             <span
               >{{ doc.paper.name }}
-              <small
-                >/
-                {{
-                  doc.paper.id === "shelter" ? "PAPER GARDEN" : "VALLEY WALK"
-                }}</small
-              ></span
-            ><span class="difficulty"
+              <small>/ {{ paperAlias }}</small></span
+            ><span v-if="doc.mode === 'design'" class="difficulty design-mode"
+              >折痕设计模式</span
+            ><span v-else class="difficulty"
               >入门探索 <i></i><i></i><i class="empty"></i
             ></span>
           </div>
+          <DesignCanvas
+            v-if="doc.mode === 'design'"
+            :doc="doc"
+            :analysis="analysis"
+            @draw="draw"
+          />
           <Viewport
+            v-else
             :doc="doc"
             :pose="pose"
             :hinges="hinges"
+            :analysis="analysis"
             @select="selectCrease(doc, $event)"
           />
-          <div class="instruction">
+          <div v-if="doc.mode === 'design'" class="instruction">
+            <span class="instruction-number">✎</span>
+            <div>
+              <b>折痕设计模式</b>
+              <p>
+                新折痕会实时切分纸面并继承双面材质；提交后自动生成对应折叠步骤，取消则恢复原样。
+              </p>
+            </div>
+            <span class="step-count"
+              >{{ doc.paper.pattern.length }} 道折痕</span
+            >
+          </div>
+          <div v-else class="instruction">
             <span class="instruction-number">0{{ doc.step + 1 }}</span>
             <div>
               <b>{{ doc.steps[doc.step]?.title }}</b>
@@ -135,17 +225,44 @@ function capture() {
           </div>
         </div>
         <aside class="right-sidebar">
-          <div class="selected-heading">
-            <span class="eyebrow">当前折痕</span>
-            <h2>{{ selectedCrease(doc)?.name }}</h2>
-            <p>{{ selectedCrease(doc)?.description }}</p>
-          </div>
-          <FoldPanel
-            :doc="doc"
-            @angle="changeAngle(doc, $event)"
-            @direction="toggleDirection(doc)"
-            @target="applyTarget(doc)"
-          /><ObservePanel :doc="doc" />
+          <template v-if="doc.mode === 'fold'">
+            <div class="selected-heading">
+              <span class="eyebrow">当前折痕</span>
+              <h2>{{ selectedCrease(doc)?.name ?? "尚未绘制折痕" }}</h2>
+              <p>
+                {{
+                  selectedCrease(doc)?.description ??
+                  "在左侧进入「绘制自定义折痕」，画出属于你自己的第一道折痕。"
+                }}
+              </p>
+            </div>
+            <FoldPanel
+              :doc="doc"
+              :analysis="analysis"
+              @angle="changeAngle(doc, $event)"
+              @direction="toggleDirection(doc)"
+              @target="applyTarget(doc)"
+            /><ObservePanel :doc="doc" />
+          </template>
+          <template v-else>
+            <div class="selected-heading">
+              <span class="eyebrow">设计模式</span>
+              <h2>绘制你的折痕</h2>
+              <p>
+                线段可以从纸边连到已有折痕，交点会自动分割纸面。形成闭环的折痕会被标注为约束，折叠时不可行会显示冲突而不会撕坏纸张。
+              </p>
+            </div>
+            <section class="panel observe-panel">
+              <div class="section-heading">
+                <span>图例</span><small>LEGEND</small>
+              </div>
+              <div class="legend design-legend">
+                <span><i class="dash"></i>可折折痕</span>
+                <span><i class="dots"></i>闭环约束</span>
+                <span><i class="ring"></i>吸附点</span>
+              </div>
+            </section>
+          </template>
         </aside>
       </div>
       <SequencePanel
@@ -170,6 +287,9 @@ function capture() {
         <h2>从第一道折痕开始</h2>
         <p>
           选择纸张与颜色，点选折痕后拖动角度滑杆。父纸面转动时，关联纸面会一起运动。
+        </p>
+        <p>
+          点击「绘制自定义折痕」可在展开图上自由画线：纸面会即时切分，提交后新折痕会加入下方步骤序列。形成闭环的折痕不能独立转动，折叠不可行时会标红提示，不会损坏作品。
         </p>
         <p>
           下方步骤可还原对应形态，也可保存当前角度后播放。拖动画面旋转视角，滚轮缩放，下载按钮可保存当前观察图。
